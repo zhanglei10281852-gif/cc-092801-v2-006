@@ -76,6 +76,39 @@ def command_compute_demo() -> int:
     return 0 if task.status_code == 202 and claimed.status_code == 200 and claimed.json().get("task") else 1
 
 
+def command_ceremony_demo() -> int:
+    graph = {
+        "actor": "cli-demo",
+        "change_note": "告别仪式标准流程",
+        "steps": [
+            {"key": "portrait", "name": "遗像制作"},
+            {"key": "hall", "name": "灵堂布置"},
+            {"key": "vehicles", "name": "车辆调度"},
+            {"key": "farewell", "name": "告别仪式"},
+        ],
+        "edges": [
+            {"predecessor": "portrait", "successor": "hall", "on_failure": "block"},
+            {"predecessor": "portrait", "successor": "vehicles", "on_failure": "ignore"},
+            {"predecessor": "hall", "successor": "farewell", "on_failure": "block"},
+            {"predecessor": "vehicles", "successor": "farewell", "on_failure": "block"},
+        ],
+    }
+    with TestClient(app) as client:
+        created = client.post("/api/ceremonies", json={"code": "funeral-demo-001", "name": "演示告别仪式", "actor": "cli-demo"})
+        if created.status_code not in {201, 409}:
+            print(created.text)
+            return 1
+        submitted = client.post("/api/ceremonies/funeral-demo-001/graph", json=graph)
+        claimed = client.post("/api/ceremonies/funeral-demo-001/claim", json={"worker_id": "cli-worker", "lease_seconds": 60})
+    result = {
+        "graph": submitted.status_code,
+        "topo_order": submitted.json().get("topo_order"),
+        "claimed": claimed.json().get("step", {}).get("step_key") if claimed.json().get("step") else None,
+    }
+    print(json.dumps(result, ensure_ascii=False))
+    return 0 if submitted.status_code in {200, 201} and result["claimed"] == "portrait" else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="ceremony-operations", description="红白喜事服务运营平台维护入口")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -83,8 +116,9 @@ def main() -> int:
     subparsers.add_parser("check-db", help="检查数据库完整性")
     subparsers.add_parser("smoke", help="执行本地 API 冒烟检查")
     subparsers.add_parser("compute-demo", help="执行计算任务提交与领取演示")
+    subparsers.add_parser("ceremony-demo", help="执行仪式流程图提交与领取演示")
     args = parser.parse_args()
-    return {"init-db": command_init, "check-db": command_check, "smoke": command_smoke, "compute-demo": command_compute_demo}[args.command]()
+    return {"init-db": command_init, "check-db": command_check, "smoke": command_smoke, "compute-demo": command_compute_demo, "ceremony-demo": command_ceremony_demo}[args.command]()
 
 
 if __name__ == "__main__":
